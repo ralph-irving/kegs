@@ -1,14 +1,16 @@
+const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.54 2021-11-12 05:20:35+00 kentd Exp $";
+
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
-/*			Copyright 2002 by Kent Dickey			*/
+/*			Copyright 2002-2021 by Kent Dickey		*/
 /*									*/
-/*		This code is covered by the GNU GPL			*/
+/*	This code is covered by the GNU GPL v3				*/
+/*	See the file COPYING.txt or https://www.gnu.org/licenses/	*/
+/*	This program is provided with no warranty			*/
 /*									*/
 /*	The KEGS web page is kegs.sourceforge.net			*/
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
-
-const char rcsid_scc_c[] = "@(#)$KmKId: scc.c,v 1.44 2004-12-03 17:33:40-05 kentd Exp $";
 
 #include "defc.h"
 
@@ -19,8 +21,8 @@ extern int g_raw_serial;
 extern int g_serial_out_masking;
 extern int g_irq_pending;
 
-/* my scc port 0 == channel A = slot 1 = c039/c03b */
-/*        port 1 == channel B = slot 2 = c038/c03a */
+/* scc	port 0 == channel A = slot 1 = c039/c03b */
+/*	port 1 == channel B = slot 2 = c038/c03a */
 
 #include "scc.h"
 #define SCC_R14_DPLL_SOURCE_BRG		0x100
@@ -34,7 +36,7 @@ extern int g_irq_pending;
 #define SCC_RX_EVENT			3
 #define SCC_MAKE_EVENT(port, a)		(((a) << 1) + (port))
 
-Scc	scc_stat[2];
+Scc	g_scc[2];
 
 int g_baud_table[] = {
 	110, 300, 600, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200
@@ -49,7 +51,7 @@ scc_init()
 	int	i, j;
 
 	for(i = 0; i < 2; i++) {
-		scc_ptr = &(scc_stat[i]);
+		scc_ptr = &(g_scc[i]);
 		scc_ptr->accfd = -1;
 		scc_ptr->sockfd = -1;
 		scc_ptr->socket_state = -1;
@@ -72,6 +74,7 @@ scc_init()
 		scc_ptr->modem_plus_mode = 0;
 		scc_ptr->modem_s0_val = 0;
 		scc_ptr->modem_cmd_len = 0;
+		scc_ptr->modem_out_portnum = 23;
 		scc_ptr->modem_cmd_str[0] = 0;
 		for(j = 0; j < 2; j++) {
 			scc_ptr->telnet_local_mode[j] = 0;
@@ -91,7 +94,7 @@ scc_reset()
 	int	i;
 
 	for(i = 0; i < 2; i++) {
-		scc_ptr = &(scc_stat[i]);
+		scc_ptr = &(g_scc[i]);
 
 		scc_ptr->port = i;
 		scc_ptr->mode = 0;
@@ -118,7 +121,7 @@ scc_hard_reset_port(int port)
 
 	scc_reset_port(port);
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 	scc_ptr->reg[14] = 0;		/* zero bottom two bits */
 	scc_ptr->reg[13] = 0;
 	scc_ptr->reg[12] = 0;
@@ -133,7 +136,7 @@ scc_hard_reset_port(int port)
 	scc_ptr->reg[1] = 0;
 
 	/* HACK HACK: */
-	scc_stat[0].reg[9] = 0;		/* Clear all interrupts */
+	g_scc[0].reg[9] = 0;		/* Clear all interrupts */
 
 	scc_evaluate_ints(port);
 
@@ -145,7 +148,7 @@ scc_reset_port(int port)
 {
 	Scc	*scc_ptr;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 	scc_ptr->reg[15] = 0xf8;
 	scc_ptr->reg[14] &= 0x03;	/* 0 most (including >= 0x100) bits */
 	scc_ptr->reg[10] = 0;
@@ -175,23 +178,14 @@ void
 scc_regen_clocks(int port)
 {
 	Scc	*scc_ptr;
-	double	br_dcycs, tx_dcycs, rx_dcycs;
-	double	rx_char_size, tx_char_size;
+	double	br_dcycs, tx_dcycs, rx_dcycs, rx_char_size, tx_char_size;
 	double	clock_mult;
-	word32	reg4;
-	word32	reg14;
-	word32	reg11;
-	word32	br_const;
-	word32	baud;
-	word32	max_diff;
-	word32	diff;
-	int	state;
-	int	baud_entries;
-	int	pos;
+	word32	reg4, reg11, reg14, br_const, max_diff, diff;
+	int	baud, state, baud_entries, pos;
 	int	i;
 
 	/*	Always do baud rate generator */
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 	br_const = (scc_ptr->reg[13] << 8) + scc_ptr->reg[12];
 	br_const += 2;	/* counts down past 0 */
 
@@ -301,7 +295,7 @@ scc_regen_clocks(int port)
 		scc_serial_win_change_params(port);
 #endif
 	} else {
-		scc_socket_change_params(port);
+		// scc_socket_change_params(port);
 	}
 }
 
@@ -331,7 +325,7 @@ scc_try_to_empty_writebuf(int port, double dcycs)
 	Scc	*scc_ptr;
 	int	state;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 	state = scc_ptr->state;
 	if(scc_ptr->write_called_this_vbl) {
 		return;
@@ -358,7 +352,7 @@ scc_try_fill_readbuf(int port, double dcycs)
 	int	space_used, space_left;
 	int	state;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 	state = scc_ptr->state;
 
 	space_used = scc_ptr->in_wrptr - scc_ptr->in_rdptr;
@@ -395,20 +389,20 @@ void
 scc_update(double dcycs)
 {
 	/* called each VBL update */
-	scc_stat[0].write_called_this_vbl = 0;
-	scc_stat[1].write_called_this_vbl = 0;
-	scc_stat[0].read_called_this_vbl = 0;
-	scc_stat[1].read_called_this_vbl = 0;
+	g_scc[0].write_called_this_vbl = 0;
+	g_scc[1].write_called_this_vbl = 0;
+	g_scc[0].read_called_this_vbl = 0;
+	g_scc[1].read_called_this_vbl = 0;
 
 	scc_try_to_empty_writebuf(0, dcycs);
 	scc_try_to_empty_writebuf(1, dcycs);
 	scc_try_fill_readbuf(0, dcycs);
 	scc_try_fill_readbuf(1, dcycs);
 
-	scc_stat[0].write_called_this_vbl = 0;
-	scc_stat[1].write_called_this_vbl = 0;
-	scc_stat[0].read_called_this_vbl = 0;
-	scc_stat[1].read_called_this_vbl = 0;
+	g_scc[0].write_called_this_vbl = 0;
+	g_scc[1].write_called_this_vbl = 0;
+	g_scc[0].read_called_this_vbl = 0;
+	g_scc[1].read_called_this_vbl = 0;
 }
 
 void
@@ -420,7 +414,7 @@ do_scc_event(int type, double dcycs)
 	port = type & 1;
 	type = (type >> 1);
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 	if(type == SCC_BR_EVENT) {
 		/* baud rate generator counted down to 0 */
 		scc_ptr->br_event_pending = 0;
@@ -429,7 +423,7 @@ do_scc_event(int type, double dcycs)
 	} else if(type == SCC_TX_EVENT) {
 		scc_ptr->tx_event_pending = 0;
 		scc_ptr->tx_buf_empty = 1;
-		scc_handle_tx_event(port, dcycs);
+		scc_handle_tx_event(port);
 	} else if(type == SCC_RX_EVENT) {
 		scc_ptr->rx_event_pending = 0;
 		scc_maybe_rx_event(port, dcycs);
@@ -446,7 +440,7 @@ show_scc_state()
 	int	i, j;
 
 	for(i = 0; i < 2; i++) {
-		scc_ptr = &(scc_stat[i]);
+		scc_ptr = &(g_scc[i]);
 		printf("SCC port: %d\n", i);
 		for(j = 0; j < 16; j += 4) {
 			printf("Reg %2d-%2d: %02x %02x %02x %02x\n", j, j+3,
@@ -552,7 +546,7 @@ scc_read_reg(int port, double dcycs)
 	word32	ret;
 	int	regnum;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 	scc_ptr->mode = 0;
 	regnum = scc_ptr->reg_ptr;
 
@@ -564,7 +558,7 @@ scc_read_reg(int port, double dcycs)
 		if(scc_ptr->dcd) {
 			ret |= 0x08;
 		}
-		ret |= 0x8;	/* HACK HACK */
+		//ret |= 0x8;	/* HACK HACK */
 		if(scc_ptr->rx_queue_depth) {
 			ret |= 0x01;
 		}
@@ -574,7 +568,8 @@ scc_read_reg(int port, double dcycs)
 		if(scc_ptr->br_is_zero) {
 			ret |= 0x02;
 		}
-		//printf("Read scc[%d] stat: %f : %02x\n", port, dcycs, ret);
+		//printf("Read scc[%d] stat: %f : %02x dcd:%d\n", port, dcycs,
+		//	ret, scc_ptr->dcd);
 		break;
 	case 1:
 	case 5:
@@ -590,14 +585,13 @@ scc_read_reg(int port, double dcycs)
 			halt_printf("Read of RR2B...stopping\n");
 			ret = 0;
 #if 0
-			ret = scc_stat[0].reg[2];
-			wr9 = scc_stat[0].reg[9];
+			ret = g_scc[0].reg[2];
+			wr9 = g_scc[0].reg[9];
 			for(i = 0; i < 8; i++) {
 				if(ZZZ){};
 			}
 			if(wr9 & 0x10) {
 				/* wr9 status high */
-				
 			}
 #endif
 		}
@@ -654,7 +648,7 @@ scc_write_reg(int port, word32 val, double dcycs)
 	int	mode;
 	int	tmp1;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 	regnum = scc_ptr->reg_ptr & 0xf;
 	mode = scc_ptr->mode;
 
@@ -793,8 +787,8 @@ scc_write_reg(int port, word32 val, double dcycs)
 			printf("Write c03%x to wr9 of %02x!\n", 8+port, val);
 			halt_printf("val & 0x35: %02x\n", (val & 0x35));
 		}
-		old_val = scc_stat[0].reg[9];
-		scc_stat[0].reg[regnum] = val;
+		old_val = g_scc[0].reg[9];
+		g_scc[0].reg[regnum] = val;
 		scc_evaluate_ints(0);
 		scc_evaluate_ints(1);
 		return;
@@ -831,7 +825,6 @@ scc_write_reg(int port, word32 val, double dcycs)
 		case 0x2:
 		case 0x3:
 			break;
-		
 		case 0x4:	/* DPLL source is BR gen */
 			val |= SCC_R14_DPLL_SOURCE_BRG;
 			break;
@@ -854,7 +847,7 @@ scc_write_reg(int port, word32 val, double dcycs)
 			scc_printf("Write c03%x to wr15 of %02x!\n", 8+port,
 				val);
 		}
-		if((scc_stat[0].reg[9] & 0x8) && (val != 0)) {
+		if((g_scc[0].reg[9] & 0x8) && (val != 0)) {
 			printf("Write wr15:%02x and master int en = 1!\n",val);
 			/* set_halt(1); */
 		}
@@ -874,7 +867,7 @@ scc_maybe_br_event(int port, double dcycs)
 	Scc	*scc_ptr;
 	double	br_dcycs;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 
 	if(((scc_ptr->reg[14] & 0x01) == 0) || scc_ptr->br_event_pending) {
 		return;
@@ -900,8 +893,8 @@ scc_evaluate_ints(int port)
 	word32	irq_add_mask, irq_remove_mask;
 	int	mie;
 
-	scc_ptr = &(scc_stat[port]);
-	mie = scc_stat[0].reg[9] & 0x8;			/* Master int en */
+	scc_ptr = &(g_scc[port]);
+	mie = g_scc[0].reg[9] & 0x8;			/* Master int en */
 
 	if(!mie) {
 		/* There can be no interrupts if MIE=0 */
@@ -942,7 +935,6 @@ scc_evaluate_ints(int port)
 	}
 }
 
-
 void
 scc_maybe_rx_event(int port, double dcycs)
 {
@@ -951,7 +943,7 @@ scc_maybe_rx_event(int port, double dcycs)
 	int	in_rdptr, in_wrptr;
 	int	depth;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 
 	if(scc_ptr->rx_event_pending) {
 		/* one pending already, wait for the event to arrive */
@@ -974,20 +966,20 @@ scc_maybe_rx_event(int port, double dcycs)
 	scc_ptr->rx_queue[depth] = scc_ptr->in_buf[in_rdptr];
 	scc_ptr->in_rdptr = (in_rdptr + 1) & (SCC_INBUF_SIZE - 1);
 	scc_ptr->rx_queue_depth = depth + 1;
-	scc_maybe_rx_int(port, dcycs);
+	scc_maybe_rx_int(port);
 	rx_dcycs = scc_ptr->rx_dcycs;
 	scc_ptr->rx_event_pending = 1;
 	add_event_scc(dcycs + rx_dcycs, SCC_MAKE_EVENT(port, SCC_RX_EVENT));
 }
 
 void
-scc_maybe_rx_int(int port, double dcycs)
+scc_maybe_rx_int(int port)
 {
 	Scc	*scc_ptr;
 	int	depth;
 	int	rx_int_mode;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 
 	depth = scc_ptr->rx_queue_depth;
 	if(depth <= 0) {
@@ -1005,17 +997,17 @@ scc_maybe_rx_int(int port, double dcycs)
 void
 scc_clr_rx_int(int port)
 {
-	scc_stat[port].wantint_rx = 0;
+	g_scc[port].wantint_rx = 0;
 	scc_evaluate_ints(port);
 }
 
 void
-scc_handle_tx_event(int port, double dcycs)
+scc_handle_tx_event(int port)
 {
 	Scc	*scc_ptr;
 	int	tx_int_mode;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 
 	/* nothing pending, see if ints on */
 	tx_int_mode = (scc_ptr->reg[1] & 0x2);
@@ -1031,7 +1023,7 @@ scc_maybe_tx_event(int port, double dcycs)
 	Scc	*scc_ptr;
 	double	tx_dcycs;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 
 	if(scc_ptr->tx_event_pending) {
 		/* one pending already, tx_buf is full */
@@ -1049,7 +1041,7 @@ scc_maybe_tx_event(int port, double dcycs)
 void
 scc_clr_tx_int(int port)
 {
-	scc_stat[port].wantint_tx = 0;
+	g_scc[port].wantint_tx = 0;
 	scc_evaluate_ints(port);
 }
 
@@ -1058,7 +1050,7 @@ scc_set_zerocnt_int(int port)
 {
 	Scc	*scc_ptr;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 
 	if(scc_ptr->reg[15] & 0x2) {
 		scc_ptr->wantint_zerocnt = 1;
@@ -1069,7 +1061,7 @@ scc_set_zerocnt_int(int port)
 void
 scc_clr_zerocnt_int(int port)
 {
-	scc_stat[port].wantint_zerocnt = 0;
+	g_scc[port].wantint_zerocnt = 0;
 	scc_evaluate_ints(port);
 }
 
@@ -1081,7 +1073,7 @@ scc_add_to_readbuf(int port, word32 val, double dcycs)
 	int	in_wrptr_next;
 	int	in_rdptr;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 
 	in_wrptr = scc_ptr->in_wrptr;
 	in_rdptr = scc_ptr->in_rdptr;
@@ -1109,14 +1101,14 @@ scc_add_to_readbufv(int port, double dcycs, const char *fmt, ...)
 {
 	va_list	ap;
 	char	*bufptr;
-	int	ret, len, c;
+	int	len, c;
 	int	i;
 
 	va_start(ap, fmt);
 	bufptr = malloc(4096);
 	bufptr[0] = 0;
-	ret = vsnprintf(bufptr, 4090, fmt, ap);
-	len = strlen(bufptr);
+	vsnprintf(bufptr, 4090, fmt, ap);
+	len = (int)strlen(bufptr);
 	for(i = 0; i < len; i++) {
 		c = bufptr[i];
 		if(c == 0x0a) {
@@ -1128,13 +1120,13 @@ scc_add_to_readbufv(int port, double dcycs, const char *fmt, ...)
 }
 
 void
-scc_transmit(int port, word32 val, double dcycs)
+scc_transmit(int port, word32 val)
 {
 	Scc	*scc_ptr;
 	int	out_wrptr;
 	int	out_rdptr;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 
 	/* See if port initialized, if not, do so now */
 	if(scc_ptr->state == 0) {
@@ -1164,18 +1156,18 @@ scc_transmit(int port, word32 val, double dcycs)
 		val = val & 0x7f;
 	}
 
-	scc_add_to_writebuf(port, val, dcycs);
+	scc_add_to_writebuf(port, val);
 }
 
 void
-scc_add_to_writebuf(int port, word32 val, double dcycs)
+scc_add_to_writebuf(int port, word32 val)
 {
 	Scc	*scc_ptr;
 	int	out_wrptr;
 	int	out_wrptr_next;
 	int	out_rdptr;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 
 	/* See if port initialized, if not, do so now */
 	if(scc_ptr->state == 0) {
@@ -1213,7 +1205,7 @@ scc_read_data(int port, double dcycs)
 	int	depth;
 	int	i;
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 
 	scc_try_fill_readbuf(port, dcycs);
 
@@ -1227,7 +1219,7 @@ scc_read_data(int port, double dcycs)
 		}
 		scc_ptr->rx_queue_depth = depth - 1;
 		scc_maybe_rx_event(port, dcycs);
-		scc_maybe_rx_int(port, dcycs);
+		scc_maybe_rx_int(port);
 	}
 
 	scc_printf("SCC read %04x: ret %02x, depth:%d\n", 0xc03b-port, ret,
@@ -1247,12 +1239,12 @@ scc_write_data(int port, word32 val, double dcycs)
 	scc_printf("SCC write %04x: %02x\n", 0xc03b-port, val);
 	scc_log(SCC_REGNUM(1,port,8), val, dcycs);
 
-	scc_ptr = &(scc_stat[port]);
+	scc_ptr = &(g_scc[port]);
 	if(scc_ptr->reg[14] & 0x10) {
 		/* local loopback! */
 		scc_add_to_readbuf(port, val, dcycs);
 	} else {
-		scc_transmit(port, val, dcycs);
+		scc_transmit(port, val);
 	}
 	scc_try_to_empty_writebuf(port, dcycs);
 

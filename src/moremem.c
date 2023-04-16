@@ -1,14 +1,16 @@
+const char rcsid_moremem_c[] = "@(#)$KmKId: moremem.c,v 1.272 2021-08-17 00:01:39+00 kentd Exp $";
+
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
-/*			Copyright 2002 by Kent Dickey			*/
+/*			Copyright 2002-2021 by Kent Dickey		*/
 /*									*/
-/*		This code is covered by the GNU GPL			*/
+/*	This code is covered by the GNU GPL v3				*/
+/*	See the file COPYING.txt or https://www.gnu.org/licenses/	*/
+/*	This program is provided with no warranty			*/
 /*									*/
 /*	The KEGS web page is kegs.sourceforge.net			*/
 /*	You may contact the author at: kadickey@alumni.princeton.edu	*/
 /************************************************************************/
-
-const char rcsid_moremem_c[] = "@(#)$KmKId: moremem.c,v 1.251 2004-11-19 01:55:50-05 kentd Exp $";
 
 #include "defc.h"
 
@@ -23,7 +25,7 @@ extern byte *g_rom_cards_ptr;
 extern word32 slow_mem_changed[];
 
 extern int g_num_breakpoints;
-extern word32 g_breakpts[];
+extern Break_point g_break_pts[];
 
 extern Page_info page_info_rd_wr[];
 
@@ -53,7 +55,7 @@ int	g_c033_data = 0;
 int	g_c034_val = 0;
 int	g_c035_shadow_reg = 0x08;
 int	g_c036_val_speed = 0x80;
-int	g_c03ef_doc_ptr = 0;
+word32	g_c03ef_doc_ptr = 0;
 int	g_c041_val = 0;		/* C041_EN_25SEC_INTS, C041_EN_MOVE_INTS */
 int	g_c046_val = 0;
 int	g_c05x_annuncs = 0;
@@ -73,6 +75,8 @@ int	g_zipgs_reg_c05b = 0x40;
 int	g_zipgs_reg_c05c = 0x00;
 	// 7:1==slot delay enable (for 52-54ms), 0==speaker 5ms delay
 
+word32	g_c06c_latched_cyc = 0;
+
 #define EMUSTATE(a)	{ #a, &a }
 
 Emustate_intlist g_emustate_intlist[] = {
@@ -90,7 +94,6 @@ Emustate_intlist g_emustate_intlist[] = {
 	EMUSTATE(g_c034_val),
 	EMUSTATE(g_c035_shadow_reg),
 	EMUSTATE(g_c036_val_speed),
-	EMUSTATE(g_c03ef_doc_ptr),
 	EMUSTATE(g_c041_val),
 	EMUSTATE(g_c046_val),
 	EMUSTATE(g_c05x_annuncs),
@@ -117,6 +120,7 @@ extern word32 g_mem_size_total;
 
 Emustate_word32list g_emustate_word32list[] = {
 	EMUSTATE(g_mem_size_total),
+	EMUSTATE(g_c03ef_doc_ptr),
 	{ 0, 0, }
 };
 
@@ -132,26 +136,29 @@ Emustate_word32list g_emustate_word32list[] = {
 void
 fixup_brks()
 {
-	word32	page;
-	word32	tmp, tmp2;
+	word32	page, tmp, tmp2, end_page;
 	Pg_info	val;
-	int	is_wr_only;
-	int	i, num;
+	int	is_wr_only, num;
+	int	i;
 
 	num = g_num_breakpoints;
 	for(i = 0; i < num; i++) {
-		page = (g_breakpts[i] >> 8) & 0xffff;
-		is_wr_only = (g_breakpts[i] >> 24) & 1;
-		if(!is_wr_only) {
-			val = GET_PAGE_INFO_RD(page);
+		page = (g_break_pts[i].start_addr >> 8) & 0xffff;
+		end_page = (g_break_pts[i].end_addr >> 8) & 0xffff;
+		is_wr_only = (g_break_pts[i].start_addr >> 24) & 1;
+		while(page <= end_page) {
+			if(!is_wr_only) {
+				val = GET_PAGE_INFO_RD(page);
+				tmp = PTR2WORD(val) & 0xff;
+				tmp2 = tmp | BANK_IO_TMP | BANK_BREAK;
+				SET_PAGE_INFO_RD(page, val - tmp + tmp2);
+			}
+			val = GET_PAGE_INFO_WR(page);
 			tmp = PTR2WORD(val) & 0xff;
 			tmp2 = tmp | BANK_IO_TMP | BANK_BREAK;
-			SET_PAGE_INFO_RD(page, val - tmp + tmp2);
+			SET_PAGE_INFO_WR(page, val - tmp + tmp2);
+			page++;
 		}
-		val = GET_PAGE_INFO_WR(page);
-		tmp = PTR2WORD(val) & 0xff;
-		tmp2 = tmp | BANK_IO_TMP | BANK_BREAK;
-		SET_PAGE_INFO_WR(page, val - tmp + tmp2);
 	}
 }
 
@@ -185,7 +192,6 @@ fixup_bank0_2000_4000()
 		} else if((g_c035_shadow_reg & 0x02) == 0) {
 			mem0wr += BANK_SHADOW;
 		}
-		
 	} else {
 		if(RAMRD) {
 			mem0rd += 0x10000;
@@ -259,10 +265,8 @@ fixup_intcx()
 {
 	byte	*rom10000;
 	byte	*rom_inc;
-	int	no_io_shadow;
-	int	off;
-	int	start_k;
-	word32	mask;
+	word32	intcx, mask;
+	int	no_io_shadow, off, start_k;
 	int	j, k;
 
 	rom10000 = &(g_rom_fc_ff_ptr[0x30000]);
@@ -275,6 +279,9 @@ fixup_intcx()
 		start_k = 2;
 	}
 
+	intcx = (g_c068_statereg & 1);	// set means use internal rom
+	// printf("fixup_intcx, intcx:%d, no_io:%d, c02d:%02x\n", intcx,
+	//				no_io_shadow, g_c02d_int_crom);
 	for(k = start_k; k < 4; k++) {
 		off = k;
 		if(k >= 2) {
@@ -287,26 +294,27 @@ fixup_intcx()
 
 		for(j = 0xc1; j < 0xc8; j++) {
 			mask = 1 << (j & 0xf);
-			if(j < 0xc8) {
-				rom_inc = SET_BANK_IO;
-				if(((g_c02d_int_crom & mask) == 0) || INTCX) {
-					rom_inc = rom10000 + (j << 8);
-				} else {
-					// User-slot rom
-					rom_inc = &(g_rom_cards_ptr[0]) +
-						((j - 0xc0) << 8);
+			rom_inc = SET_BANK_IO;
+			if(((g_c02d_int_crom & mask) == 0) || intcx) {
+				rom_inc = rom10000 + (j << 8);
+			} else {
+				// User-slot rom
+				rom_inc = &(g_rom_cards_ptr[0]) +
+							((j - 0xc0) << 8);
+				if(j == 0xc4) {		// Mockingboard
+					rom_inc = SET_BANK_IO;
 				}
-				SET_PAGE_INFO_RD(j + off, rom_inc);
 			}
+			SET_PAGE_INFO_RD(j + off, rom_inc);
 		}
 		for(j = 0xc8; j < 0xd0; j++) {
 			/* c800 - cfff */
-			if(((g_c02d_int_crom & (1 << 3)) == 0) || INTCX) {
+			if(((g_c02d_int_crom & (1 << 3)) == 0) || intcx) {
 				rom_inc = rom10000 + (j << 8);
 			} else {
 				/* c800 space not necessarily mapped */
-				/*   just map in ROM */
-				rom_inc = rom10000 + (j << 8);
+				//rom_inc = rom10000 + (j << 8);
+				rom_inc = SET_BANK_IO;
 			}
 			SET_PAGE_INFO_RD(j + off, rom_inc);
 		}
@@ -328,9 +336,8 @@ fixup_wrdefram(int new_wrdefram)
 	byte	*mem0wr;
 	byte	*wrptr;
 	int	j;
-	
-	g_c08x_wrdefram = new_wrdefram;
 
+	g_c08x_wrdefram = new_wrdefram;
 	if(g_c035_shadow_reg & 0x40) {
 		/* do nothing */
 		return;
@@ -550,7 +557,7 @@ fixup_ramwrt()
 		shadow = BANK_SHADOW2;
 	}
 	if( ((g_c035_shadow_reg & 0x20) != 0) ||
-				((g_rom_version < 3) && !g_user_page2_shadow)) {
+			((g_rom_version == 1) && !g_user_page2_shadow)) {
 		shadow = 0;
 	}
 	for(j = 8; j < 0x0c; j++) {
@@ -672,6 +679,8 @@ set_statereg(double dcycs, int val)
 {
 	int	xor;
 
+	dbg_log_info(dcycs, val, g_c068_statereg, 0x68);
+
 	xor = val ^ g_c068_statereg;
 	g_c068_statereg = val;
 	if(xor == 0) {
@@ -755,7 +764,7 @@ fixup_shadow_txt2()
 		shadow = BANK_SHADOW2;
 	}
 	if(((g_c035_shadow_reg & 0x20) == 0) &&
-			((g_rom_version >= 3) || g_user_page2_shadow)) {
+			((g_rom_version != 1) || g_user_page2_shadow)) {
 		mem0wr += shadow;
 	}
 	for(j = 8; j < 0xc; j++) {
@@ -765,7 +774,7 @@ fixup_shadow_txt2()
 	/* and bank 1 */
 	mem0wr = &(g_memory_ptr[0x10000]);
 	if(((g_c035_shadow_reg & 0x20) == 0) &&
-			((g_rom_version >= 3) || g_user_page2_shadow)) {
+			((g_rom_version != 1) || g_user_page2_shadow)) {
 		mem0wr += BANK_SHADOW2;
 	}
 	for(j = 8; j < 0xc; j++) {
@@ -917,7 +926,7 @@ update_shadow_reg(int val)
 	if(xor & 1) {
 		fixup_shadow_txt1();
 	}
-	if((xor & 0x20) && ((g_rom_version >= 3) || g_user_page2_shadow)) {
+	if((xor & 0x20) && ((g_rom_version != 1) || g_user_page2_shadow)) {
 		fixup_shadow_txt2();
 	}
 	if(xor & 0x40) {
@@ -962,7 +971,6 @@ setup_pageinfo()
 	word32	mem_size_pages;
 
 	/* first, set all of memory to point to itself */
-	
 	mem_size_pages = g_mem_size_total >> 8;
 	mem0rd = &(g_memory_ptr[0]);
 	fixup_any_bank_any_page(0, mem_size_pages, mem0rd, mem0rd);
@@ -1074,8 +1082,19 @@ show_addr(byte *ptr)
 	}
 }
 
+word32
+moremem_fix_vector_pull(word32 addr)
+{
+	// Default vector for BRK will come from 0xfffffe.  But if
+	//  I/O shadowing is off, or we're a //e, then get from bank0
+	if((g_c035_shadow_reg & 0x40) || (g_rom_version == 0)) {
+		// I/O shadowing off, or Apple //e: use RAM loc
+		addr = addr & 0xffff;
+	}
+	return addr;
+}
 
-#define CALC_DCYCS_FROM_CYC_PTR(dcycs, cyc_ptr, fcyc, new_fcyc)	\
+#define CALC_DCYCS_FROM_CYC_PTR(dcycs, cyc_ptr)			\
 	dcycs = g_last_vbl_dcycs + *cyc_ptr;
 
 
@@ -1083,17 +1102,11 @@ int
 io_read(word32 loc, double *cyc_ptr)
 {
 	double	dcycs;
-	word64	word64_tmp;
-#if 0
-	double	fcyc, new_fcyc;
-#endif
-	word32	mask;
-	int new_lcbank2;
-	int new_wrdefram;
-	int tmp;
-	int i;
+	dword64	word64_tmp;
+	int	new_lcbank2, new_wrdefram, tmp;
+	int	i;
 
-	CALC_DCYCS_FROM_CYC_PTR(dcycs, cyc_ptr, fcyc, new_fcyc);
+	CALC_DCYCS_FROM_CYC_PTR(dcycs, cyc_ptr);
 
 /* IO space */
 	switch((loc >> 8) & 0xf) {
@@ -1117,8 +1130,8 @@ io_read(word32 loc, double *cyc_ptr)
 			return IOR(RAMRD);
 		case 0x14: /* c014=rdramwrt */
 			return IOR(RAMWRT);
-		case 0x15: /* c015 = INTCX */
-			return IOR(INTCX);
+		case 0x15: /* c015 = RDCXROM = INTCX */
+			return IOR(g_c068_statereg & 1);
 		case 0x16: /* c016: ALTZP */
 			return IOR(ALTZP);
 		case 0x17: /* c017: rdc3rom */
@@ -1144,7 +1157,7 @@ io_read(word32 loc, double *cyc_ptr)
 		/* 0xc020 - 0xc02f */
 		case 0x20: /* 0xc020 */
 			/* Click cassette port */
-			return 0x00;
+			return float_bus(dcycs);
 		case 0x21: /* 0xc021 */
 			/* Not documented, but let's return COLOR_C021 */
 			return IOR(g_cur_a2_stat & ALL_STAT_COLOR_C021);
@@ -1161,7 +1174,7 @@ io_read(word32 loc, double *cyc_ptr)
 		case 0x27: /* 0xc027 */
 			return adb_read_c027();
 		case 0x28: /* 0xc028 */
-			UNIMPL_READ;
+			return 0;
 		case 0x29: /* 0xc029 */
 			return((g_cur_a2_stat & 0xa0) | g_c029_val_some);
 		case 0x2a: /* 0xc02a */
@@ -1211,7 +1224,7 @@ io_read(word32 loc, double *cyc_ptr)
 			return scc_read_data(0, dcycs);
 		case 0x3c: /* 0xc03c */
 			/* doc control */
-			return doc_read_c03c(dcycs);
+			return doc_read_c03c();
 		case 0x3d: /* 0xc03d */
 			return doc_read_c03d(dcycs);
 		case 0x3e: /* 0xc03e */
@@ -1335,7 +1348,7 @@ io_read(word32 loc, double *cyc_ptr)
 			return 0;
 		case 0x5b: /* 0xc05b */
 			if(g_zipgs_unlock >= 4) {
-				word64_tmp = (word64)dcycs;
+				word64_tmp = (dword64)dcycs;
 				tmp = (word64_tmp >> 9) & 1;
 				return (tmp << 7) + (g_zipgs_reg_c05b & 0x7f);
 			} else {
@@ -1400,11 +1413,12 @@ io_read(word32 loc, double *cyc_ptr)
 			return 0;
 		case 0x6a: /* 0xc06a */
 		case 0x6b: /* 0xc06b */
+			UNIMPL_READ;
 		case 0x6c: /* 0xc06c */
 		case 0x6d: /* 0xc06d */
 		case 0x6e: /* 0xc06e */
 		case 0x6f: /* 0xc06f */
-			UNIMPL_READ;
+			return g_c06c_latched_cyc >> (8 * (loc & 3)) & 0xff;
 
 		/* 0xc070 - 0xc07f */
 		case 0x70: /* c070 */
@@ -1488,10 +1502,8 @@ io_read(word32 loc, double *cyc_ptr)
 		case 0xe0: case 0xe1: case 0xe2: case 0xe3:
 		case 0xe4: case 0xe5: case 0xe6: case 0xe7:
 		case 0xe8: case 0xe9: case 0xea: case 0xeb:
-		          case 0xed: case 0xee: case 0xef:
+		case 0xec: case 0xed: case 0xee: case 0xef:
 			return read_iwm(loc, dcycs);
-		case 0xec:
-			return iwm_read_c0ec(dcycs);
 		/* 0xc0f0 - 0xc0ff */
 		case 0xf0: case 0xf1: case 0xf2: case 0xf3:
 		case 0xf4: case 0xf5: case 0xf6: case 0xf7:
@@ -1503,36 +1515,27 @@ io_read(word32 loc, double *cyc_ptr)
 			printf("loc: %04x bad\n", loc);
 			UNIMPL_READ;
 		}
-	case 1: case 2: case 3: case 4: case 5: case 6:
-		/* c100 - c6ff */
-		mask = (1 << ((loc >> 8) & 7));
-		if(INTCX || ((g_c02d_int_crom & mask) == 0)) {
-			return(g_rom_fc_ff_ptr[0x3c000 + (loc & 0xfff)]);
-		}
+	case 1: case 2: case 3: case 5: case 6:
+		/* c100 - c6ff, (except c4xx) */
 		return float_bus(dcycs);
+	case 4:
+		return mockingboard_read(loc, dcycs);
 	case 7:
 		/* c700 */
-		if(INTCX || ((g_c02d_int_crom & (1 << 7)) == 0)) {
-			return(g_rom_fc_ff_ptr[0x3c000 + (loc & 0xfff)]);
-		}
 		tmp = g_rom_fc_ff_ptr[0x3c500 + (loc & 0xff)];
 		if((loc & 0xff) == 0xfb) {
 			tmp = tmp & 0xbf;	/* clear bit 6 for ROM 03 */
 		}
 		return tmp;
 	case 8: case 9: case 0xa: case 0xb: case 0xc: case 0xd: case 0xe:
-		if(INTCX || ((g_c02d_int_crom & (1 << 3)) == 0)) {
-			return(g_rom_fc_ff_ptr[0x3c000 + (loc & 0xfff)]);
-		}
-		UNIMPL_READ;
+		return float_bus(dcycs);
+		// UNIMPL_READ;
 	case 0xf:
-		if(INTCX || ((g_c02d_int_crom & (1 << 3)) == 0)) {
-			return(g_rom_fc_ff_ptr[0x3c000 + (loc & 0xfff)]);
-		}
 		if((loc & 0xfff) == 0xfff) {
 			return g_rom_fc_ff_ptr[0x3cfff];
 		}
-		UNIMPL_READ;
+		return float_bus(dcycs);
+		// UNIMPL_READ;
 	}
 
 	halt_printf("io_read: hit end, loc: %06x\n", loc);
@@ -1553,7 +1556,7 @@ io_write(word32 loc, int val, double *cyc_ptr)
 	int	tmp;
 	int	fixup;
 
-	CALC_DCYCS_FROM_CYC_PTR(dcycs, cyc_ptr, fcyc, new_fcyc);
+	CALC_DCYCS_FROM_CYC_PTR(dcycs, cyc_ptr);
 
 	val = val & 0xff;
 	switch((loc >> 8) & 0xf) {
@@ -1584,10 +1587,10 @@ io_write(word32 loc, int val, double *cyc_ptr)
 		case 0x05: /* 0xc005 */
 			set_statereg(dcycs, g_c068_statereg | 0x10);
 			return;
-		case 0x06: /* 0xc006 */
+		case 0x06: /* 0xc006 = SETSLOTCXROM, use slot rom c800 */
 			set_statereg(dcycs, g_c068_statereg & ~0x01);
 			return;
-		case 0x07: /* 0xc007 */
+		case 0x07: /* 0xc007 = SETINTXROM, use int rom c800 */
 			set_statereg(dcycs, g_c068_statereg | 0x01);
 			return;
 		case 0x08: /* 0xc008 */
@@ -1596,21 +1599,21 @@ io_write(word32 loc, int val, double *cyc_ptr)
 		case 0x09: /* 0xc009 */
 			set_statereg(dcycs, g_c068_statereg | 0x80);
 			return;
-		case 0x0a: /* 0xc00a */
+		case 0x0a: /* 0xc00a = SETINTC3ROM, use internal ROM slot 3*/
 			tmp = 1 << 3;
 			if((g_c02d_int_crom & tmp) != 0) {
 				g_c02d_int_crom &= ~tmp;
 				fixup_intcx();
 			}
 			return;
-		case 0x0b: /* 0xc00b */
+		case 0x0b: /* 0xc00b = SETSLOTC3ROM, use slot rom slot 3 */
 			tmp = 1 << 3;
 			if((g_c02d_int_crom & tmp) == 0) {
 				g_c02d_int_crom |= tmp;
 				fixup_intcx();
 			}
 			return;
-		case 0x0c: /* 0xc00c */
+		case 0x0c: /* 0xc00c = SETINTC3ROM, use internal rom slot 3*/
 			if(g_cur_a2_stat & ALL_STAT_VID80) {
 				g_cur_a2_stat &= (~ALL_STAT_VID80);
 				change_display_mode(dcycs);
@@ -1720,7 +1723,7 @@ io_write(word32 loc, int val, double *cyc_ptr)
 				printf("Writing c02b with %02x\n", val);
 			}
 			return;
-		case 0x2d: /* 0xc02d */
+		case 0x2d: /* 0xc02d = Slot Reg. Bit set means use slot rom */
 			if((val & 0x9) != 0) {
 				halt_printf("Illegal c02d write: %02x!\n", val);
 			}
@@ -1753,7 +1756,7 @@ io_write(word32 loc, int val, double *cyc_ptr)
 			tmp = val ^ g_c031_disk35;
 			if(tmp & 0x40) {
 				/* apple35_sel changed, maybe speed change */
-				set_halt(HALT_EVENT);
+				engine_recalc_events();
 			}
 			g_c031_disk35 = val & 0xc0;
 			return;
@@ -1797,11 +1800,11 @@ io_write(word32 loc, int val, double *cyc_ptr)
 			g_c036_val_speed = (val & ~0x20);	/* clr bit 5 */
 			if(tmp & 0x80) {
 				/* to recalculate times since speed changing */
-				set_halt(HALT_EVENT);
+				engine_recalc_events();
 			}
 			if(tmp & 0xf) {
 				/* slot_motor_detect changed */
-				set_halt(HALT_EVENT);
+				engine_recalc_events();
 			}
 
 			if((val & 0x60) != 0) {
@@ -1963,7 +1966,7 @@ io_write(word32 loc, int val, double *cyc_ptr)
 			} else if(g_zipgs_unlock >= 4) {
 				if((g_zipgs_reg_c05b & 0x10) == 0) {
 					/* to recalculate times */
-					set_halt(HALT_EVENT);
+					engine_recalc_events();
 				}
 				g_zipgs_reg_c05b |= 0x10;	// disable
 			}
@@ -1972,7 +1975,7 @@ io_write(word32 loc, int val, double *cyc_ptr)
 			if(g_zipgs_unlock >= 4) {
 				if((g_zipgs_reg_c05b & 0x10) != 0) {
 					/* to recalculate times */
-					set_halt(HALT_EVENT);
+					engine_recalc_events();
 				}
 				g_zipgs_reg_c05b &= (~0x10);	// enable
 			} else {
@@ -1990,7 +1993,7 @@ io_write(word32 loc, int val, double *cyc_ptr)
 			if(g_zipgs_unlock >= 4) {
 				if(((g_zipgs_reg_c05a ^ val) >= 0x10) &&
 					((g_zipgs_reg_c05b & 0x10) == 0)) {
-					set_halt(HALT_EVENT);
+					engine_recalc_events();
 				}
 				g_zipgs_reg_c05a = val | 0xf;
 			} else {
@@ -2032,9 +2035,11 @@ io_write(word32 loc, int val, double *cyc_ptr)
 		case 0x69: /* 0xc069 */
 			/* just ignore, someone writing c068 with m=0 */
 			return;
+		case 0x6c: /* 0xc06c */
+			g_c06c_latched_cyc = (word32)((dword64)dcycs);
+			return;
 		case 0x6a: /* 0xc06a */
 		case 0x6b: /* 0xc06b */
-		case 0x6c: /* 0xc06c */
 		case 0x6d: /* 0xc06d */
 		case 0x6e: /* 0xc06e */
 		case 0x6f: /* 0xc06f */
@@ -2061,7 +2066,7 @@ io_write(word32 loc, int val, double *cyc_ptr)
 		case 0x7b: /* 0xc07b */
 		case 0x7c: /* 0xc07c */
 		case 0x7d: /* 0xc07d */
-			UNIMPL_WRITE;
+			return;
 
 		/* 0xc080 - 0xc08f */
 		case 0x80: case 0x81: case 0x82: case 0x83:
@@ -2127,7 +2132,7 @@ io_write(word32 loc, int val, double *cyc_ptr)
 		case 0xb4: case 0xb5: case 0xb6: case 0xb7:
 		case 0xb8: case 0xb9: case 0xba: case 0xbb:
 		case 0xbc: case 0xbd: case 0xbe: case 0xbf:
-			UNIMPL_WRITE;
+			return;
 
 		/* 0xc0c0 - 0xc0cf */
 		case 0xc0: case 0xc1: case 0xc2: case 0xc3:
@@ -2158,98 +2163,44 @@ io_write(word32 loc, int val, double *cyc_ptr)
 		case 0xfc: case 0xfd: case 0xfe: case 0xff:
 			UNIMPL_WRITE;
 		default:
-			printf("WRite loc: %x\n",loc);
+			printf("Write loc: %x\n",loc);
 			exit(-300);
 		}
 		break;
-	case 1: case 2: case 3: case 4: case 5: case 6: case 7:
-		/* c1000 - c7ff */
+	case 1: case 2: case 3: case 5: case 6: case 7:
+		/* c1000 - c7ff (but not c4xx) */
 		UNIMPL_WRITE;
+	case 4:
+		if((g_c02d_int_crom & 0x10) && !(g_c068_statereg & 1)) {
+			// Slot 4 is set to Your Card and not INTCX
+			mockingboard_write(loc, val, dcycs);
+			return;
+		}
+		return;
 	case 8: case 9: case 0xa: case 0xb: case 0xc: case 0xd: case 0xe:
-		UNIMPL_WRITE;
+		// UNIMPL_WRITE;
+		return;
 	case 0xf:
 		if((loc & 0xfff) == 0xfff) {
 			/* cfff */
 			return;
 		}
-		UNIMPL_WRITE;
+		// UNIMPL_WRITE;
+		// Wings of Fury writes to $cf00-$cfff when reading a 0x300
+		//  sector where it wants to load 0x200 to 0xd000-0xd1ff
+		return;
 	}
 	printf("Huh2? Write loc: %x\n", loc);
 	exit(-290);
 }
 
-
-
-#if 0
-int
-get_slow_mem(word32 loc, int duff_cycles)
-{
-	int val;
-
-	loc = loc & 0x1ffff;
-	
-	if((loc &0xf000) == 0xc000) {
-		return(io_read(loc &0xfff, duff_cycles));
-	}
-	if((loc & 0xf000) >= 0xd000) {
-		if((loc & 0xf000) == 0xd000) {
-			if(!LCBANK2) {
-				/* Not LCBANK2 == be 0xc000 - 0xd000 */
-				loc = loc - 0x1000;
-			}
-		}
-	}
-
-	val = g_slow_memory_ptr[loc];
-
-	halt_printf("get_slow_mem: %06x = %02x\n", loc, val);
-
-	return val;
-}
-
-int
-set_slow_mem(word32 loc, int val, int duff_cycles)
-{
-	int	or_pos;
-	word32	or_val;
-
-	loc = loc & 0x1ffff;
-	if((loc & 0xf000) == 0xc000) {
-		return(io_write(loc & 0xfff, val, duff_cycles));
-	}
-
-	if((loc & 0xf000) == 0xd000) {
-		if(!LCBANK2) {
-			/* Not LCBANK2 == be 0xc000 - 0xd000 */
-			loc = loc - 0x1000;
-		}
-	}
-
-	if(g_slow_memory_ptr[loc] != val) {
-		or_pos = (loc >> SHIFT_PER_CHANGE) & 0x1f;
-		or_val = DEP1(1, or_pos, 0);
-		if((loc >> CHANGE_SHIFT) >= SLOW_MEM_CH_SIZE || loc < 0) {
-			printf("loc: %08x!!\n", loc);
-			exit(11);
-		}
-		slow_mem_changed[(loc & 0xffff) >> CHANGE_SHIFT] |= or_val;
-	}
-
-/* doesn't shadow text/hires graphics properly! */
-	g_slow_memory_ptr[loc] = val;
-
-	return val;
-}
-#endif
-
-/* IIgs vertical line counters */
-/* 0x7d - 0x7f: in vbl, top of screen? */
-/* 0x80 - 0xdf: not in vbl, drawing screen */
-/* 0xe0 - 0xff: in vbl, bottom of screen */
-
-/* Note: lines are then 0-0x60 effectively, for 192 lines */
-/* vertical blanking engages on line 192, even if in super hires mode */
-/* (Last 8 lines in SHR are drawn with vbl_active set */
+// IIgs vertical line counters
+// 0x7d - 0x7f: in vbl, top of screen?
+// 0x80 - 0xdf: not in vbl, drawing screen
+// 0xe0 - 0xff: in vbl, bottom of screen
+// Note: lines are then 0-0x60 effectively, for 192 lines, from 0x80-0xdf
+// vertical blanking engages on line 192, even if in super hires mode
+// (Last 8 lines in SHR are drawn with vbl_active set
 
 word32
 get_lines_since_vbl(double dcycs)
@@ -2299,9 +2250,10 @@ in_vblank(double dcycs)
 	return 0;
 }
 
-/* horizontal video counter goes from 0x00,0x40 - 0x7f, then 0x80,0xc0-0xff */
-/* over 2*65 cycles.  The last visible screen pos is 0x7f and 0xff */
-/* This matches KEGS starting line 0 at the border for line -1 */
+// horizontal video counter goes from 0x00,0x40 - 0x7f, then 0x80,0xc0-0xff
+// over 2*65 cycles.  The last visible screen pos is 0x7f and 0xff
+// KEGS starts it's "line 0" at the start of the right border for line -1
+// See get_lines_since_vbl comment for the format of the vertical counter
 int
 read_vid_counters(int loc, double dcycs)
 {

@@ -1,4 +1,117 @@
 
+Changes in KEGS v1.14 since v1.13 (11/14/21)
+- Better support for disk images inside .zip files.
+- Linux sound fixes to make PULSE_AUDIO work a little better.
+- Better handle being run from the Finder, and go right to the Config
+	page to select a ROM file if no ROM is found.
+- Add NSHighResolutionCapable=False to speed up graphics operations on some
+	Macs
+- Fix serial port code to properly return the DCD status as a modem.
+
+
+Changes in KEGS v1.13 since v1.12 (09/23/21)
+- Better support for joysticks on Macs.  Select Native Joystick 1.
+
+
+Changes in KEGS v1.12 since v1.11 (08/22/21)
+- Preliminary support for joysticks on Macs.  Select Native Joystick 1.
+- Fixes for Keypad Joystick to work again (the non-US keyboard support broke
+	them).
+
+Changes in KEGS v1.11 since v1.08 (08/19/21)
+- KEGS should support many non-US keyboards, converting your local
+	keys to the US equivalents: [,],|, etc.  Italian works least well,
+	sorry.
+- KEGS can choose character ROMs out of a ROMX-compatible file.  Use F4,
+	"Character ROM Selection", and then pick the file and font.
+	If you pick an unreadable font and cannot undo it for some reason,
+	quit KEGS, and using a text editor, delete g_cfg_charrom_* lines from
+	config.kegs.
+- Taking an IRQ logs the stack accesses in the datalog properly.
+- Fixed BRK and COP exceptions to always pull their vectors from ROM.
+	Bug was found by Applecorn: https://github.com/bobbimanners/Applecorn
+
+
+Changes in KEGS v1.08 since v1.07 (06/29/21)
+- Fixed a stupid bug in iwm.c that would cause KEGS to crash when many WOZ
+	images were mounted.
+
+
+Changes in KEGS v1.07 since v1.05 (06/26/21)
+- Can create new disk images while running: press N in the disk image
+	selection screen.
+- Support for loading disk images directly out of .zip archives (read-only).
+	In the disk image selection dialog, select the .zip file, and then
+	it will step into the archive and you can select the file inside.
+- Major rewrite of IWM routines to now add support for WOZ version 1 and
+	version 2 5.25" disk images.
+- Many Mockingboard fixes to enable mb-audit v0.7 to pass.
+	https://github.com/tomcw/mb-audit
+
+
+Changes in KEGS v1.05 since v1.04 (01/24/21)
+- The Mac executable is now universal, support M1 silicon and x86_64.
+- F8 works again to confine the mouse to the KEGS window.  Press F8 again
+	to release the cursor.
+
+
+Changes in KEGS v1.04 since v1.03 (01/10/21)
+- Paste works from the host to the emulated machine.  On the Mac,
+	select text in another app, do Cmd-C, and then in KEGS select
+	the Edit menu->Paste.  On X11, select the text in another application,
+	then in KEGS, click the middle mouse button to paste.  Up to ~32KB
+	can be pasted, but I recommend smaller amounts. 
+- On the Mac, the Config menu item will bring up the Configuration screen
+	(same as pressing F4).
+- Fix bug where Nox Archaist running on 5.25" floppies with fast_disk_emul
+	on (which is the default) would cause KEGS to halt and not write
+	modified data back to the disk image.  Nox Archaist doesn't read
+	the entire sector header, waits about 7 disk nibble times, then
+	writes new sector data.  This confused fast disk emulation which
+	doesn't move the emulated disk position just by waiting.  Now, when
+	a write begins, KEGS will move the emulated disk position.
+- Added logpc debugger command in the F7 debugger window.  KEGS can keep
+	track of all registers after each instruction for up to 2 million
+	instructions.  This is dumped out to the file pc_log_out in the
+	directory where config.kegs was found.  
+	In the debugger window "help logpc" gives basic help.  "logpc on"
+	turns on logging, and "logpc save" writes out the last 2 million
+	instructions.
+- Reading $C020 and $C030 return a floating bus value.  This fixes
+	Beyond Castle Wolfenstain randomness as reported by Vladimir
+	Ivanov.
+	https://groups.google.com/g/comp.sys.apple2/c/3gH0dUpLI3Q/m/JJYnhRYBrY4J
+
+
+Changes in KEGS v1.03 since v1.00 (12/11/20)
+- This is beta quality
+- Add Mockingboard support.  In the IIgs control panel, set slot 4 to Your
+	Card, and KEGS will emulate a stereo Mockingboard A.
+- Disk images can be gzip compressed (master.dsk.gz, for example) and KEGS
+	can load them as readonly.
+- .sdk disk images can be loaded directly (read only).  Only the first disk
+	image in a .sdk archive will be opened.
+- Debugger is now a separate window.  Press F7.  "bp" allows setting a range,
+	so "bp c400-c4ff" sets breakpoints on all addresses in that range.
+- If the debugger window pops up, it means emulation has halted.  Press 'g'
+	and then return in the debugger window to try to restart KEGS.
+	It may just halt again.  This area needs improvement, you will likely
+	need to quit out of KEGS and start over if 'g' a few times
+	doesn't continue emulation.
+- KEGS allows resizing windows.  On Linux X11, KEGS does the scaling.
+- Removed HP PA-RISC assembly, which simplifies compiling a bit.
+- 2.8MHz speed now emulated at 2.8MHz, which is a little fast, but makes
+	some very timing-sensitive code in the NFS Megademo work better.
+
+--------------------------------------------------------------------
+
+Changes in KEGS v1.00 since v0.91 (12/15/19)
+- This is pre-alpha quality
+- Major rewrite of how the host interacts with the KEGS emulation code.
+- Now supports MAC OS X Swift native compiles on Mojave (and later)
+
+--------------------------------------------------------------------
+
 Changes in KEGS v0.91 since v0.90 (12/06/04)
 - Fixed serious bug in engine_c.c that could cause Finder file copies to
 	silently corrupt data.
