@@ -1,14 +1,14 @@
 
-KEGS: Kent's Emulated GS version 1.21
+KEGS: Kent's Emulated GS version 1.27
 http://kegs.sourceforge.net/
 
 What is this?
 -------------
 
-KEGS is an Apple IIgs emulator for Mac OS X and Linux.
-The Apple IIgs was the most powerful computer in the Apple II line.
-It first was sold in 1986.  An Apple IIgs has the capability to run almost all
-Apple II, Apple IIe, and Apple IIc programs.
+KEGS is an Apple IIgs emulator for Mac OS X, Linux, and Windows.
+The Apple IIgs was first sold in 1986 and was the most powerful computer in
+the Apple II line.  An Apple IIgs has the capability to run almost all
+Apple II, Apple II+, Apple IIe, and Apple IIc programs.
 
 KEGS supports all Apple IIgs graphics modes (which include all Apple //e
 modes), plus plays all Apple IIgs sounds accurately.  It supports
@@ -20,6 +20,38 @@ with KEGS since they are not freely distributable.  KEGS is a little
 user-hostile now, so if something doesn't work, let me know what went
 wrong, and I'll try to help you out.  See my email address at the end of
 this file.
+
+KEGS QuickStart:
+---------------
+
+Run the KEGSMAC executable (see README.mac.txt on how to get around Mac
+security restrictions), or kegswin.exe on Windows 10 or later, or xkegs on
+Linux.
+
+You must download and place a ROM file in the directory you run KEGS from,
+or in your $HOME directory.  GS ROM version 01 should be named ROM.01, and
+GS ROM version 03 should be named ROM.03.  See Getting ROMs below.
+
+Once KEGS is running, if it cannot find a ROM file, it will ask you to
+select one using an Apple-II style directory selection screen.  When done,
+Press F4 to start.
+
+Press F4 while KEGS is running to select Disk images.  The default config.kegs
+will boot Nucleus in s7d1.  If you unmount it (F4->Disk Configuration, go
+down to s7d1, press E to eject, then F4, then do Ctrl-F1-F12 to reset and
+reboot, then the XMAS demo will start).
+
+Apple IIgs programs need Command and Option keys, and these sometimes are
+used by windowing systems on Linux and Windows.  F1 is always Command (or
+Open-Apple) and F2 is always Option (or closed-Apple), and F3 is an alternate
+for ESC.  So entering the IIgs control panel can be done with Ctrl-F1-F3.
+
+Press F5 to toggle the status display.  Press F6 to toggle speed between
+1MHz, 2.8MHz, 8MHz, and Unlimited.  You can only see the current speed with
+the status lines enabled.
+
+You can resize the KEGS window.
+
 
 KEGS features:
 -------------
@@ -97,16 +129,15 @@ Running KEGS:
 ------------
 
 The distribution comes with the full source code for all platforms in
-the src/ directory, the Linux executable as xkegs, and the Mac OS X
-executable as KEGSMAC.app.
+the src/ directory, the Linux executable as xkegs, the Windows executable
+is kegswin.exe, and the Mac OS X executable as KEGSMAC.app.
 
 See the README.compile.txt file for more info about compiling for Linux.
 
-On all platforms except the Mac, you must start KEGS from a terminal
-window.  KEGS will open a new window and use the window you started it from
-as a "debug" window.  
+On Linux, you must start KEGS from a terminal window.  You can double-click
+on KEGSMAC.app or kegswin.exe to run those executables.
 
-On a MAC, you need to place the "config.kegs" file someplace where KEGS
+You need to place the "config.kegs" file someplace where KEGS
 can find it.  The simplest place is in your home directory, so copy it there
 with the Finder (or using the Terminal).  You can also make the directory
 Library/KEGS from your home directory, and then place config.kegs there
@@ -117,11 +148,14 @@ Start kegs by Double-clicking the KEGSMAC icon on a MAC, or by running
 the executable (kegswin on Windows, and kegs on Linux).  KEGSMAC can
 be run by the Terminal window on a Mac as well (which enables access to
 more debug information) by typing: "./KEGSMAC.app/Contents/MacOS/KEGSMAC".
+There may be permissions/security issues on a Mac, see README.mac.txt for
+details. 
 
 Assuming all goes well, KEGS will then boot up but probably not find any
 disk images.  See below for how to tell KEGS what disk images to use.
 Tip: Hitting "F8" locks the mouse in the window (and hides the host cursor)
 until you hit "F8" again.
+
 
 Configuration Panel:
 -------------------
@@ -228,6 +262,11 @@ Num_Lock:		Keypad "Clear".
 F12, Pause, Break:	Reset.  Must press Ctrl to get Apple IIgs to reset
 
 "Home": Alias for "=" on the keypad (since my Unix keyboard doesn't have an =).
+
+Alt keys don't work well for Command and Option on Windows.  They only
+can be detected when another key is pressed.  So Alt_L-Q will be detected
+as Command-Q.  But just pressing Alt_L alone will not do anything.
+
 
 Using KEGS:
 ----------
@@ -456,9 +495,10 @@ Apple IIgs Control Panel:
 You can get to the Apple IIgs control panel (unless some application
 has locked it out) using Ctrl-Command-ESC.
 
-Important things to do here: Change the speed to 1MHz (for Apple II
-compatibility), change the boot device (so you can boot s6d1 directly),
-and change Slot 4 to Your Card to enable Mockingboard.
+Important things you can do here: Change the speed to 1MHz (for Apple II
+compatibility) (or just F6 to change the speed to 1MHz), change the boot
+device (so you can boot s6d1 directly), and change Slot 4 to Your Card to
+enable Mockingboard.
 
 
 Moving data into and out of KEGS
@@ -744,9 +784,8 @@ self-tests to make the ROM checksum pass.  But other programs, like
 the Apple IIgs Diagnostic Disk, will detect a ROM checksum mismatch.
 Don't worry about it.
 
-Sound breaks up if KEGS is unable to keep up--it should only be happening
-if you are trying to force KEGS to run at 2.8MHz, but cannot due to
-sound and video overhead.
+Sound breaks up if KEGS is unable to keep up, this should not happen on
+any modern computer, but resizing the window can cause issues.
 
 
 Sound emulation:
@@ -767,8 +806,8 @@ Mockingboard emulation is just for the AY8913 sound chip, not for the
 SC01 speech chip.  To use the Mockingboard, you must do Ctrl-Cmd-ESC to
 get to the IIgs control panel, select Control Panel, then Slots, then
 set slot 4 to "Your card".  Make sure you press return.  Then get out,
-and then do Ctrl-Cmd-Reset to restart KEGS (and make the change take
-effect).
+and then do Ctrl-Cmd-Reset.  The reset is a limitation of the IIgs ROM, it
+often doesn't seem to make proper register changes until the next Reset).
 
 
 SCC (Serial Port) emulation:
@@ -876,8 +915,8 @@ ch_in:	Percentage of Unix processor cycles spent checking for X input Events.
 ref_l:	Percentage of Unix processor cycles spent scanning the Apple IIgs
 		memory for changes to the current display screen memory,
 		and copying those changes to internal XImage buffers.
-ref_x:	Percentage of Unix processor cycles spent sending those XImage buffers
-		to the X server.  Very similar to xred_cs.
+pix/fr:	Number of pixels changed on average for the last 60 frames.
+
 
 Line 3: (Interpreter overhead)
 Ints:  Number of Apple IIgs interrupts over the last second.
@@ -893,7 +932,7 @@ Eng:	Number of calls to the main instruction interpreter loop in the
 act:	Some instructions are handled by the main interpreter loop returning
 		special status "actions" to main event loop.  This is the
 		number over the last second.  Should be low.
-hev:	This tracks HALT_EVENTs.  KEGS returns to the main loop to recalc
+rev:	This tracks EVENTs.  KEGS returns to the main loop to recalc
 		effective speed whenever any speed-changing I/O location is
 		touched.  See the code, mostly in moremem.c
 esi:	This counts the number of superhires scan-line interrupts
@@ -902,24 +941,17 @@ edi:	This counts the number of Ensoniq "special events" over the last
 		second.  A sound that stops playing always causes a KEGS
 		event, even if it doesn't cause a IIgs interrupt.
 
-Line 4: (Ensoniq DOC info)
-snd1,2,3,4:  Percentage of Unix processor cycles spent handling various
-		sound activities.  snd1 is the total sum of all sound overhead.
-st:	Percentage of Unix cycles spent starting new Ensoniq oscillators.
-est:	Percentage of Unix cycles spent looking for 0 bytes in sounds.
-x.yz:	This final number is the average number of oscillators playing
-		over the last second.  Up to 4.00 is low overhead, over
-		20.0 is high overhead.
+Line 4: Not used
 
-Line 5: (Ensoniq DOC info)
-snd_plays:	Number of calls to a routine called sound_play, which
-		plays Ensoniq sounds.  Always called at least 60 times per sec.
-doc_ev:	Number of Ensoniq (DOC) events in the last second.  A sound
-		stopping is an event, but changing a parameter of a sound
-		while it is playing is also an event.
-st_snd:	 Number of sounds that were started in the last second.
-snd_parms:	Number of times a sound parameter was changed while it
-		was playing.
+Line 5: (Host overhead)
+sleep_dtime:	Amount of time, in seconds, where KEGS "slept" for the last
+		second.  Indicates how idle KEGS was.
+out_16ms:	Amount of time, in seconds, KEGS spent drawing to the host
+		screen and other overhead, in the last second.
+in_16ms:	Amount of time, in seconds, KEGS spent emulating the Apple IIgs
+		in the last second.
+snd_pl:		Number of times a sound parameter was changed while it
+		was playing, but there will always be 60 per second minimum.
 
 Line 6: (IWM info)
 For each IWM device, this line displays the current track (and side for

@@ -1,4 +1,4 @@
-const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.453 2023-05-04 19:35:29+00 kentd Exp $";
+const char rcsid_sim65816_c[] = "@(#)$KmKId: sim65816.c,v 1.461 2023-06-13 17:06:13+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -70,7 +70,7 @@ extern int g_audio_enable;
 extern int g_preferred_rate;
 
 int	g_a2_fatal_err = 0;
-dword64	g_dcycles_end = 0.0;
+dword64	g_dcycles_end = 0;
 int	g_fcycles_end_for_event = 0;
 int	g_halt_sim = 0;
 int	g_rom_version = -1;
@@ -88,7 +88,7 @@ int	g_serial_out_masking = 0;
 int	g_serial_modem[2] = { 0, 1 };
 
 int	g_config_iwm_vbl_count = 0;
-const char g_kegs_version_str[] = "1.23";
+const char g_kegs_version_str[] = "1.27";
 
 dword64	g_last_vbl_dfcyc = 0;
 dword64	g_cur_dfcyc = 1;
@@ -128,9 +128,9 @@ word32 g_natcycs_lastvbl = 0;
 int Verbose = 0;
 int Halt_on = 0;
 
-word32 g_mem_size_base = 256*1024;	/* size of motherboard memory */
+word32 g_mem_size_base = 128*1024;	/* size of motherboard memory */
 word32 g_mem_size_exp = 8*1024*1024;	/* size of expansion RAM card */
-word32 g_mem_size_total = 256*1024;	/* Total contiguous RAM from 0 */
+word32 g_mem_size_total = 128*1024;	/* Total contiguous RAM from 0 */
 
 extern word32 g_slow_mem_changed[];
 
@@ -155,20 +155,10 @@ extern word32 g_cycs_in_refresh_line;
 extern word32 g_cycs_in_refresh_ximage;
 extern word32 g_cycs_in_run_16ms;
 extern word32 g_cycs_outside_run_16ms;
-extern word32 g_cycs_in_sound1;
-extern word32 g_cycs_in_sound2;
-extern word32 g_cycs_in_sound3;
-extern word32 g_cycs_in_sound4;
-extern word32 g_cycs_in_start_sound;
-extern word32 g_cycs_in_est_sound;
 extern word32 g_refresh_bytes_xfer;
 
 extern int g_num_snd_plays;
-extern int g_num_doc_events;
-extern int g_num_start_sounds;
-extern int g_num_scan_osc;
 extern int g_num_recalc_snd_parms;
-extern float g_fvoices;
 
 extern int g_doc_vol;
 
@@ -223,7 +213,8 @@ toolbox_debug_c(word32 xreg, word32 stack, dword64 *dcyc_ptr)
 	pos = g_toolbox_log_pos;
 
 	stack += 9;
-	g_toolbox_log_array[pos][0] = g_last_vbl_dfcyc + *dcyc_ptr;
+	g_toolbox_log_array[pos][0] = (word32)
+					((g_last_vbl_dfcyc + *dcyc_ptr) >> 16);
 	g_toolbox_log_array[pos][1] = stack+1;
 	g_toolbox_log_array[pos][2] = xreg;
 	g_toolbox_log_array[pos][3] = toolbox_debug_4byte(stack+1);
@@ -491,6 +482,9 @@ memory_ptr_init()
 	/* This routine may be called several times--each time the ROM file */
 	/*  changes this will be called */
 	mem_size = MY_MIN(0xdf0000, g_mem_size_base + g_mem_size_exp);
+	if(g_rom_version == 0) {			// Apple //e
+		mem_size = g_mem_size_base;
+	}
 	g_mem_size_total = mem_size;
 	if(g_memory_alloc_ptr) {
 		free(g_memory_alloc_ptr);
@@ -1083,14 +1077,15 @@ setup_zip_speeds()
 		fmhz = fmhz * 1.19;
 	}
 #endif
-	drecip = 65536 / fmhz;
+	drecip = (dword64)(65536 / fmhz);
 	g_zip_pmhz = fmhz;
 	g_recip_projected_pmhz_zip.dplus_1 = drecip;
 	if(fmhz <= 2.0) {
-		g_recip_projected_pmhz_zip.dplus_x_minus_1 = 1.01 * 65536;
+		g_recip_projected_pmhz_zip.dplus_x_minus_1 =
+						(dword64)(1.01 * 65536);
 	} else {
-		g_recip_projected_pmhz_zip.dplus_x_minus_1 = 1.01 * 65536 -
-								drecip;
+		g_recip_projected_pmhz_zip.dplus_x_minus_1 =
+					(dword64)(1.01 * 65536 - drecip);
 	}
 }
 
@@ -1158,11 +1153,11 @@ run_a2_one_vbl()
 	g_cur_sim_dtime = 0.0;
 
 	g_recip_projected_pmhz_slow.dplus_1 = 0x10000;
-	g_recip_projected_pmhz_slow.dplus_x_minus_1 = 0.9 * 0x10000;
+	g_recip_projected_pmhz_slow.dplus_x_minus_1 = (dword64)(0.9 * 0x10000);
 
-	g_recip_projected_pmhz_fast.dplus_1 = (0x10000 / 2.8);
-	g_recip_projected_pmhz_fast.dplus_x_minus_1 = (1.98 - (1.0/2.8)) *
-						0x10000;
+	g_recip_projected_pmhz_fast.dplus_1 = (dword64)(0x10000 / 2.8);
+	g_recip_projected_pmhz_fast.dplus_x_minus_1 = (dword64)
+				((1.98 - (1.0/2.8)) * 0x10000);
 
 	zip_speed_0tof = g_zipgs_reg_c05a & 0xf0;
 	setup_zip_speeds();
@@ -1450,7 +1445,7 @@ update_60hz(dword64 dfcyc, double dtime_now)
 	double	eff_pmhz, predicted_pmhz, recip_predicted_pmhz;
 	double	dtime_this_vbl_sim, dtime_diff_1sec, dratio, dtime_diff;
 	double	dtime_till_expected, dtime_this_vbl, dadjcycs_this_vbl;
-	double	dadj_cycles_1sec, dtmp1, dtmp2, dtmp3, dtmp4, dtmp5;
+	double	dadj_cycles_1sec, dtmp2, dtmp3, dtmp4;
 	double	dnatcycs_1sec;
 	int	tmp, doit_3_persec, cur_vbl_index, prev_vbl_index;
 
@@ -1565,14 +1560,7 @@ update_60hz(dword64 dfcyc, double dtime_now)
 			g_engine_doc_int);
 		video_update_status_line(2, status_buf);
 
-		dtmp1 = (double)(g_cycs_in_sound1) / dnatcycs_1sec;
-		dtmp2 = (double)(g_cycs_in_sound2) / dnatcycs_1sec;
-		dtmp3 = (double)(g_cycs_in_sound3) / dnatcycs_1sec;
-		dtmp4 = (double)(g_cycs_in_start_sound) / dnatcycs_1sec;
-		dtmp5 = (double)(g_cycs_in_est_sound) / dnatcycs_1sec;
-		snprintf(status_buf, sizeof(status_buf), "snd1:%4.1f%%, "
-			"2:%4.1f%%, 3:%4.1f%%, st:%4.1f%% est:%4.1f%% %4.2f",
-			dtmp1, dtmp2, dtmp3, dtmp4, dtmp5, g_fvoices);
+		snprintf(status_buf, sizeof(status_buf), " ");
 		video_update_status_line(3, status_buf);
 
 		code_str1 = "";
@@ -1585,12 +1573,6 @@ update_60hz(dword64 dfcyc, double dtime_now)
 			code_str1 = "Code: RED";
 			code_str2 = "Emulated state corrupt?";
 		}
-#if 0
-		snprintf(status_buf, sizeof(status_buf), "snd_plays:%4d, "
-			"doc_ev:%4d, st_snd:%4d snd_parms: %4d %s",
-			g_num_snd_plays, g_num_doc_events, g_num_start_sounds,
-			g_num_recalc_snd_parms, code_str1);
-#endif
 		snprintf(status_buf, sizeof(status_buf), "sleep_dtime:%8.6f, "
 			"out_16ms:%8.6f, in_16ms:%8.6f, snd_pl:%d",
 			g_dtime_in_sleep, g_dtime_outside_run_16ms,
@@ -1621,12 +1603,6 @@ update_60hz(dword64 dfcyc, double dtime_now)
 		g_cycs_in_check_input = 0;
 		g_cycs_in_refresh_line = 0;
 		g_cycs_in_refresh_ximage = 0;
-		g_cycs_in_sound1 = 0;
-		g_cycs_in_sound2 = 0;
-		g_cycs_in_sound3 = 0;
-		g_cycs_in_sound4 = 0;
-		g_cycs_in_start_sound = 0;
-		g_cycs_in_est_sound = 0;
 		g_dnatcycs_1sec = 0.0;
 		g_dtime_outside_run_16ms = 0.0;
 		g_dtime_in_run_16ms = 0.0;
@@ -1634,12 +1610,7 @@ update_60hz(dword64 dfcyc, double dtime_now)
 
 		g_dtime_in_sleep = 0;
 		g_num_snd_plays = 0;
-		g_num_doc_events = 0;
-		g_num_start_sounds = 0;
-		g_num_scan_osc = 0;
 		g_num_recalc_snd_parms = 0;
-
-		g_fvoices = (float)0.0;
 	}
 
 	dtime_this_vbl = dtime_now - g_dtime_last_vbl;
@@ -1686,9 +1657,10 @@ update_60hz(dword64 dfcyc, double dtime_now)
 	recip_predicted_pmhz = 1.0/predicted_pmhz;
 	g_projected_pmhz = predicted_pmhz;
 
-	g_recip_projected_pmhz_unl.dplus_1 = 65536*recip_predicted_pmhz;
+	g_recip_projected_pmhz_unl.dplus_1 = (dword64)
+						(65536 * recip_predicted_pmhz);
 	g_recip_projected_pmhz_unl.dplus_x_minus_1 =
-			65536 * (1.01 - recip_predicted_pmhz);
+			(dword64)(65536 * (1.01 - recip_predicted_pmhz));
 
 	if(dtime_till_expected < -0.125) {
 		/* If we were way off, get back on track */
@@ -1706,7 +1678,7 @@ update_60hz(dword64 dfcyc, double dtime_now)
 	}
 
 	g_dtime_sleep = 0.0;
-	if(dtime_till_expected > (3.0/VBL_RATE)) {
+	if(dtime_till_expected > (1.0/VBL_RATE)) {
 		/* we're running fast, usleep */
 		g_dtime_sleep = dtime_till_expected - (1.0/VBL_RATE);
 	}
@@ -1847,7 +1819,7 @@ check_scan_line_int(int cur_video_line)
 		}
 		if(g_slow_memory_ptr[0x19d00+i] & 0x40) {
 			irq_printf("Adding scan_int for line %d\n", i);
-			delay = (DCYCS_IN_16MS/262.0) * ((double)line);
+			delay = 65 * line;
 			add_event_entry(g_last_vbl_dfcyc + delay, EV_SCAN_INT +
 					(line << 8));
 			g_scan_int_events = 1;
@@ -1943,6 +1915,10 @@ do_wdm(word32 arg)
 	switch(arg) {
 	case 0x8d: /* Bouncin Ferno does WDM 8d */
 		break;
+	case 0xfc:	// HOST.FST "head_call" for ATINIT for ProDOS 8
+	case 0xfd:	// HOST.FST "tail_call" for ATINIT for ProDOS 8
+	case 0xff:	// HOST.FST "call_host" for GS/OS driver
+		break;
 	default:
 		halt_printf("do_wdm: %02x!\n", arg);
 	}
@@ -2016,10 +1992,16 @@ must_write(int fd, byte *bufptr, dword64 dsize)
 {
 	dword64	dlen;
 	long long ret;
+	word32	this_len;
 
 	dlen = dsize;
 	while(dlen != 0) {
-		ret = write(fd, bufptr, dlen);
+		// Support Windows64, which can only rd/wr 2GB max per call
+		this_len = (1UL << 30);
+		if(dlen < this_len) {
+			this_len = (word32)dlen;
+		}
+		ret = write(fd, bufptr, this_len);
 		if(ret >= 0) {
 			dlen -= ret;
 			bufptr += ret;
@@ -2053,5 +2035,15 @@ kegs_malloc_str(const char *in_str)
 	memcpy(str, in_str, len);
 
 	return str;
+}
+
+dword64
+kegs_lseek(int fd, dword64 offs, int whence)
+{
+#ifdef _WIN32
+	return _lseeki64(fd, offs, whence);
+#else
+	return lseek(fd, offs, whence);
+#endif
 }
 

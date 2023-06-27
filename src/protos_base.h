@@ -11,7 +11,7 @@
 /************************************************************************/
 
 #ifdef INCLUDE_RCSID_C
-const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.131 2023-04-30 17:26:31+00 kentd Exp $";
+const char rcsid_protos_base_h[] = "@(#)$KmKId: protos_base.h,v 1.138 2023-06-08 01:35:25+00 kentd Exp $";
 #endif
 
 #ifdef __GNUC__
@@ -87,8 +87,9 @@ word32 adb_read_c025(void);
 int adb_is_cmd_key_down(void);
 int adb_is_option_key_down(void);
 void adb_increment_speed(void);
+void adb_update_c025_mask(Kimage *kimage_ptr, word32 new_c025_val, word32 mask);
 int adb_ascii_to_a2code(int unicode_c, int a2code, int *shift_down_ptr);
-void adb_physical_key_update(Kimage *kimage_ptr, int raw_a2code, word32 unicode_c, int is_up, int shift_down, int ctrl_down, int lock_down);
+void adb_physical_key_update(Kimage *kimage_ptr, int raw_a2code, word32 unicode_c, int is_up);
 void adb_maybe_virtual_key_update(int a2code, int is_up);
 void adb_virtual_key_update(int a2code, int is_up);
 void adb_kbd_repeat_off(void);
@@ -164,8 +165,8 @@ void config_generate_config_kegs_name(char *outstr, int maxlen, Disk *dsk, int w
 void config_write_config_kegs_file(void);
 void insert_disk(int slot, int drive, const char *name, int ejected, const char *partition_name, int part_num, word32 dynamic_blocks);
 dword64 cfg_get_fd_size(int fd);
-word32 cfg_read_from_fd(int fd, byte *bufptr, dword64 dpos, word32 size);
-word32 cfg_write_to_fd(int fd, byte *bufptr, dword64 dpos, word32 size);
+dword64 cfg_read_from_fd(int fd, byte *bufptr, dword64 dpos, dword64 dsize);
+dword64 cfg_write_to_fd(int fd, byte *bufptr, dword64 dpos, dword64 dsize);
 int cfg_partition_maybe_add_dotdot(void);
 int cfg_partition_name_check(const byte *name_ptr, int name_len);
 int cfg_partition_read_block(int fd, void *buf, dword64 blk, int blk_size);
@@ -234,7 +235,7 @@ void debug_hit_bp(word32 addr, dword64 dfcyc, word32 maybe_stack, word32 type, i
 int debugger_run_16ms(void);
 void dbg_log_info(dword64 dfcyc, word32 info1, word32 info2, word32 type);
 void debugger_update_list_kpc(void);
-void debugger_key_event(int a2code, int is_up, int shift_down, int ctrl_down, int lock_down);
+void debugger_key_event(Kimage *kimage_ptr, int a2code, int is_up);
 void debugger_page_updown(int isup);
 void debugger_redraw_screen(Kimage *kimage_ptr);
 void debug_draw_debug_line(Kimage *kimage_ptr, int line, int vid_line);
@@ -377,7 +378,7 @@ int iwm_read_enable2_handshake(dword64 dfcyc);
 void iwm_write_enable2(int val);
 word32 iwm_fastemul_start_write(Disk *dsk, dword64 dfcyc);
 word32 iwm_read_data_fast(Disk *dsk, dword64 dfcyc);
-word32 iwm_return_rand_data(Disk *dsk, dword64 dfcyc);
+dword64 iwm_return_rand_data(Disk *dsk, dword64 dfcyc);
 dword64 iwm_get_raw_bits(Disk *dsk, word32 bit_pos, int num_bits, dword64 *dsyncs_ptr);
 word32 iwm_calc_bit_diff(word32 first, word32 last, word32 track_bits);
 word32 iwm_calc_bit_sum(word32 bit_pos, int add_ival, word32 track_bits);
@@ -552,12 +553,13 @@ int kegs_vprintf(const char *fmt, va_list ap);
 dword64 must_write(int fd, byte *bufptr, dword64 dsize);
 void clear_fatal_logs(void);
 char *kegs_malloc_str(const char *in_str);
+dword64 kegs_lseek(int fd, dword64 offs, int whence);
 
 
 
 /* smartport.c */
 void smartport_error(void);
-void smartport_log(word32 start_addr, int cmd, int rts_addr, int cmd_list);
+void smartport_log(word32 start_addr, word32 cmd, word32 rts_addr, word32 cmd_list);
 void do_c70d(word32 arg0);
 void do_c70a(word32 arg0);
 int do_read_c7(int unit_num, word32 buf, word32 blk);
@@ -567,9 +569,30 @@ void do_c700(word32 ret);
 
 
 
+/* doc.c */
+void doc_init(void);
+void doc_reset(dword64 dfcyc);
+int doc_play(dword64 dfcyc, double last_dsamp, double dsamp_now, int num_samps, int snd_buf_init, int *outptr_start);
+void doc_handle_event(int osc, dword64 dfcyc);
+void doc_sound_end(int osc, int can_repeat, double eff_dsamps, double dsamps);
+void doc_add_sound_irq(int osc);
+void doc_remove_sound_irq(int osc, int must);
+void doc_start_sound2(int osc, dword64 dfcyc);
+void doc_start_sound(int osc, double eff_dsamps, double dsamps);
+void doc_wave_end_estimate2(int osc, dword64 dfcyc);
+void doc_wave_end_estimate(int osc, double eff_dsamps, double dsamps);
+void doc_remove_sound_event(int osc);
+void doc_write_ctl_reg(dword64 dfcyc, int osc, int val);
+void doc_recalc_sound_parms(dword64 dfcyc, int osc);
+int doc_read_c03c(void);
+int doc_read_c03d(dword64 dfcyc);
+void doc_write_c03c(dword64 dfcyc, word32 val);
+void doc_write_c03d(dword64 dfcyc, word32 val);
+void doc_show_ensoniq_state(void);
+
+
+
 /* sound.c */
-void doc_log_rout(char *msg, int osc, double dsamps, int etc);
-void show_doc_log(void);
 void sound_init(void);
 void sound_set_audio_rate(int rate);
 void sound_reset(dword64 dfcyc);
@@ -579,27 +602,15 @@ void open_sound_file(void);
 void close_sound_file(void);
 void check_for_range(word32 *addr, int num_samps, int offset);
 void send_sound_to_file(word32 *addr, int shm_pos, int num_samps);
-void show_c030_state(void);
-void show_c030_samps(int *outptr, int num);
-void sound_play(double dsamps);
+void show_c030_state(dword64 dfcyc);
+void show_c030_samps(dword64 dfcyc, int *outptr, int num);
+int sound_play_c030(dword64 dfcyc, dword64 dsamp, int *outptr_start, int num_samps);
+void sound_play(dword64 dfcyc);
 void sound_mock_envelope(int pair, int *env_ptr, int num_samps, int *vol_ptr);
 void sound_mock_noise(int pair, byte *noise_ptr, int num_samps);
 void sound_mock_play(int pair, int channel, int *outptr, int *env_ptr, byte *noise_ptr, int *vol_ptr, int num_samps);
-void doc_handle_event(int osc, dword64 dfcyc);
-void doc_sound_end(int osc, int can_repeat, double eff_dsamps, double dsamps);
-void add_sound_irq(int osc);
-void remove_sound_irq(int osc, int must);
-void start_sound(int osc, double eff_dsamps, double dsamps);
-void wave_end_estimate(int osc, double eff_dsamps, double dsamps);
-void remove_sound_event(int osc);
-void doc_write_ctl_reg(int osc, int val, double dsamps);
-void doc_recalc_sound_parms(int osc, double dsamps);
-int doc_read_c030(dword64 dfcyc);
-int doc_read_c03c(void);
-int doc_read_c03d(dword64 dfcyc);
-void doc_write_c03c(int val, dword64 dfcyc);
-void doc_write_c03d(int val, dword64 dfcyc);
-void doc_show_ensoniq_state(void);
+word32 sound_read_c030(dword64 dfcyc);
+void sound_write_c030(dword64 dfcyc);
 
 
 
@@ -661,6 +672,8 @@ void unshk_dsk_raw_data(Disk *dsk);
 
 
 /* undeflate.c */
+void *undeflate_realloc(void *ptr, dword64 dsize);
+void *undeflate_malloc(dword64 dsize);
 void show_bits(unsigned *llptr, int nl);
 void show_huftb(unsigned *tabptr, int bits);
 void undeflate_init_len_dist_tab(word32 *tabptr, dword64 drepeats, word32 start);
@@ -678,7 +691,7 @@ word32 *undeflate_dynamic_table(byte *cptr, word32 *bit_pos_ptr, byte *cptr_base
 byte *undeflate_block(Disk *dsk, byte *cptr, word32 *bit_pos_ptr, byte *cptr_base, byte *cptr_end);
 byte *undeflate_gzip_header(Disk *dsk, byte *cptr, word32 compr_size);
 void undeflate_gzip(Disk *dsk, const char *name_str);
-byte *undeflate_zipfile_blocks(Disk *dsk, byte *cptr, word32 compr_size);
+byte *undeflate_zipfile_blocks(Disk *dsk, byte *cptr, dword64 dcompr_size);
 int undeflate_zipfile(Disk *dsk, int fd, dword64 dlocal_header_off, dword64 uncompr_dsize, dword64 compr_dsize);
 int undeflate_zipfile_search(byte *bptr, byte *cmp_ptr, int size, int cmp_len, int min_size);
 int undeflate_zipfile_make_list(int fd);
@@ -804,6 +817,7 @@ void update_border_info(void);
 void update_border_line(int st_line_offset, int end_line_offset, int color);
 void video_border_pixel_write(Kimage *kimage_ptr, int starty, int num_lines, int color, int st_off, int end_off);
 word32 video_get_ch_mask(word32 mem_ptr, word32 filt_stat, int reparse);
+void video_update_edges(int line, int left, int right, const char *str);
 void redraw_changed_text(word32 line_bytes, int reparse, word32 *in_wptr, int pixels_per_line, word32 filt_stat);
 void redraw_changed_string(const byte *bptr, word32 line_bytes, word32 ch_mask, word32 *in_wptr, word32 bg_pixel, word32 fg_pixel, int pixels_per_line, int dbl);
 void redraw_changed_gr(word32 line_bytes, int reparse, word32 *in_wptr, int pixels_per_line, word32 filt_stat);

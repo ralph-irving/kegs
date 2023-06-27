@@ -1,4 +1,4 @@
-const char rcsid_video_c[] = "@(#)$KmKId: video.c,v 1.198 2023-05-03 17:36:45+00 kentd Exp $";
+const char rcsid_video_c[] = "@(#)$KmKId: video.c,v 1.201 2023-05-19 13:52:30+00 kentd Exp $";
 
 /************************************************************************/
 /*			KEGS: Apple //gs Emulator			*/
@@ -524,6 +524,7 @@ video_init_kimage(Kimage *kimage_ptr, int width, int height)
 	kimage_ptr->x_height = height;
 	kimage_ptr->x_refresh_needed = 1;
 	kimage_ptr->active = 0;
+	kimage_ptr->c025_val = 0;
 
 	kimage_ptr->scale_width_to_a2 = 0x10000;
 	kimage_ptr->scale_width_a2_to_x = 0x10000;
@@ -746,7 +747,7 @@ change_border_color(dword64 dfcyc, int val)
 	int	pos;
 
 	pos = g_num_border_changes;
-	g_border_changes[pos].usec = (dfcyc - g_last_vbl_dfcyc) >> 16;
+	g_border_changes[pos].usec = (word32)((dfcyc - g_last_vbl_dfcyc) >> 16);
 	g_border_changes[pos].val = val;
 
 	pos++;
@@ -781,7 +782,7 @@ update_border_info()
 		g_border_changes[limit].val = (g_c034_val & 0xf);
 		limit++;
 	}
-	last_line_offset = ((word32)-1UL << 8) + 44;
+	last_line_offset = (((word32)-1L) << 8) + 44;
 	for(i = 0; i < limit; i++) {
 		usec = g_border_changes[i].usec;
 		dline = usec * drecip_usec;
@@ -2659,7 +2660,7 @@ video_update_status_line(int line, const char *string)
 			wptr, 0, 0x00ffffff, pixels_per_line, 1);
 	}
 
-	// Don't add rectangle here, video_from_change_rects will do it
+	// Don't add rectangle here, video_form_change_rects will do it
 	//video_add_a2_rect(start_line, start_line + 8, 0, 640);
 }
 
